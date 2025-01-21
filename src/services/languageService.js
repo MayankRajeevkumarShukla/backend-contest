@@ -3,39 +3,56 @@ const { exec } = require('child_process');
 const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const executeJavascript = (code) => {
+
+const TIMEOUT_LIMIT = 2000; // Maximum allowed execution time in ms
+
+// Execute JavaScript
+const executeJavascript = (code, input) => {
     const vm = new VM({
-        timeout: 1000,
+        timeout: TIMEOUT_LIMIT,
         sandbox: {
             console: {
-                log: (...args) => {
-                    return args.join(' ');
-                },
+                log: (...args) => args.join(' '),
             },
         },
     });
 
     try {
-        const result = vm.run(code);
-        return { success: true, result: result !== undefined ? result.toString() : 'Code executed without explicit return' };
+        const codeWithInput = `
+            ${code}
+            console.log(solution(${JSON.stringify(input)}));
+        `;
+        const result = vm.run(codeWithInput);
+        return { success: true, result: result !== undefined ? result.toString() : '' };
     } catch (error) {
-        console.error("JavaScript execution error:", error.message);
-        return { success: false, error: error.message };
+        const errorType = error.message.includes('Script execution timed out')
+            ? 'Time Limit Exceeded (TLE)'
+            : 'Syntax Error';
+        console.error(`JavaScript ${errorType}:`, error.message);
+        return { success: false, error: errorType };
     }
 };
 
-const executePython = async (code) => {
+// Execute Python
+const executePython = async (code, input) => {
     const filename = `temp-${uuidv4()}.py`;
     const filepath = path.join(__dirname, '../tmp', filename);
-    
+
     try {
-        await fs.outputFile(filepath, code);
+        const codeWithInput = `
+${code}
+
+if __name__ == "__main__":
+    print(solution(${JSON.stringify(input)}))
+`;
+        await fs.outputFile(filepath, codeWithInput);
 
         const result = await new Promise((resolve, reject) => {
-            exec(`python ${filepath}`, (error, stdout, stderr) => {
+            exec(`python ${filepath}`, { timeout: TIMEOUT_LIMIT }, (error, stdout, stderr) => {
                 if (error) {
-                    console.error("Python execution error:", stderr || error.message);
-                    reject({ success: false, error: stderr || error.message });
+                    const errorType = error.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Syntax Error';
+                    console.error(`Python ${errorType}:`, stderr || error.message);
+                    reject({ success: false, error: errorType });
                 } else {
                     resolve({ success: true, result: stdout.trim() });
                 }
@@ -45,37 +62,44 @@ const executePython = async (code) => {
         await fs.remove(filepath);
         return result;
     } catch (error) {
-        console.error("Error executing Python:", error.message);
+        console.error('Python Execution Error:', error.message);
+        await fs.remove(filepath);
         return { success: false, error: error.message };
     }
 };
 
-const executeJava = async (code) => {
+// Execute Java
+const executeJava = async (code, input) => {
     const uniqueId = uuidv4();
-    const className = `TempClass${uniqueId.replace(/-/g, '')}`;
+    const className = `Solution${uniqueId.replace(/-/g, '')}`;
     const filename = `${className}.java`;
     const filepath = path.join(__dirname, '../tmp', filename);
-    
+
     try {
-        let modifiedCode = code.replace(/class\s+([A-Za-z0-9_]+)/, `class ${className}`);
-        modifiedCode = modifiedCode.replace(/System\.out\.println\('([^']*)'\)/g, 'System.out.println("$1")');
-        modifiedCode = modifiedCode.replace(/System\.out\.print\('([^']*)'\)/g, 'System.out.print("$1")');
-        
+        const modifiedCode = `
+public class ${className} {
+    ${code.replace(/public\s+class\s+\w+\s*\{/, '').slice(0, -1)}
+    
+    public static void main(String[] args) {
+        System.out.println(solution(${JSON.stringify(input)}));
+    }
+}`;
         await fs.outputFile(filepath, modifiedCode);
 
         const result = await new Promise((resolve, reject) => {
-            const compileCommand = `javac -source 1.8 -target 1.8 "${filepath}"`;
+            const compileCommand = `javac "${filepath}"`;
             const runCommand = `java -cp "${path.dirname(filepath)}" ${className}`;
-            
+
             exec(compileCommand, (compileError, compileStdout, compileStderr) => {
                 if (compileError) {
-                    reject({ success: false, error: compileStderr || compileError.message });
+                    reject({ success: false, error: 'Syntax Error' });
                     return;
                 }
 
-                exec(runCommand, (runError, runStdout, runStderr) => {
+                exec(runCommand, { timeout: TIMEOUT_LIMIT }, (runError, runStdout, runStderr) => {
                     if (runError) {
-                        reject({ success: false, error: runStderr || runError.message });
+                        const errorType = runError.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Runtime Error';
+                        reject({ success: false, error: errorType });
                     } else {
                         resolve({ success: true, result: runStdout.trim() });
                     }
@@ -87,44 +111,43 @@ const executeJava = async (code) => {
         await fs.remove(filepath.replace('.java', '.class'));
         return result;
     } catch (error) {
-        try {
-            await fs.remove(filepath);
-            await fs.remove(filepath.replace('.java', '.class'));
-        } catch (cleanupError) {
-            console.error("Cleanup error:", cleanupError);
-        }
+        await fs.remove(filepath);
+        await fs.remove(filepath.replace('.java', '.class'));
         return { success: false, error: error.message };
     }
 };
 
-const executeCpp = async (code) => {
+// Execute C++
+const executeCpp = async (code, input) => {
     const uniqueId = uuidv4();
     const filename = `temp-${uniqueId}.cpp`;
     const executableName = `temp-${uniqueId}${process.platform === 'win32' ? '.exe' : ''}`;
     const filepath = path.join(__dirname, '../tmp', filename);
     const executablePath = path.join(__dirname, '../tmp', executableName);
-    
+
     try {
-    
-        await fs.ensureDir(path.join(__dirname, '../tmp'));
-        
-        await fs.writeFile(filepath, code);
+        const codeWithInput = `
+${code}
+
+int main() {
+    cout << solution(${JSON.stringify(input)}) << endl;
+    return 0;
+}`;
+        await fs.outputFile(filepath, codeWithInput);
 
         const result = await new Promise((resolve, reject) => {
-           
-            const compileCommand = process.platform === 'win32'
-                ? `g++ "${filepath}" -o "${executablePath}" -std=c++11`
-                : `g++ "${filepath}" -o "${executablePath}" -std=c++11`;
+            const compileCommand = `g++ "${filepath}" -o "${executablePath}"`;
+
             exec(compileCommand, (compileError, compileStdout, compileStderr) => {
                 if (compileError) {
-                    console.error("C++ compilation error:", compileStderr || compileError.message);
-                    reject({ success: false, error: compileStderr || compileError.message });
+                    reject({ success: false, error: 'Syntax Error' });
                     return;
                 }
-                exec(`"${executablePath}"`, (runError, runStdout, runStderr) => {
+
+                exec(`"${executablePath}"`, { timeout: TIMEOUT_LIMIT }, (runError, runStdout, runStderr) => {
                     if (runError) {
-                        console.error("C++ runtime error:", runStderr || runError.message);
-                        reject({ success: false, error: runStderr || runError.message });
+                        const errorType = runError.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Runtime Error';
+                        reject({ success: false, error: errorType });
                     } else {
                         resolve({ success: true, result: runStdout.trim() });
                     }
@@ -132,38 +155,72 @@ const executeCpp = async (code) => {
             });
         });
 
-        await Promise.all([
-            fs.remove(filepath),
-            fs.remove(executablePath)
-        ]);
-
+        await fs.remove(filepath);
+        await fs.remove(executablePath);
         return result;
     } catch (error) {
-        try {
-            await Promise.all([
-                fs.remove(filepath),
-                fs.remove(executablePath)
-            ]);
-        } catch (cleanupError) {
-            console.error("Cleanup error:", cleanupError);
-        }
+        await fs.remove(filepath);
+        await fs.remove(executablePath);
         return { success: false, error: error.message };
     }
 };
 
-const executeCodeInLanguage = async (code, language) => {
-    switch (language.toLowerCase()) {
-        case 'javascript':
-            return executeJavascript(code);
-        case 'python':
-            return await executePython(code);
-        case 'java':
-            return await executeJava(code);
-        case 'cpp':
-            return await executeCpp(code);
-        default:
-            return { success: false, error: 'Unsupported language' };
+// Main Execution
+const executeCodeInLanguage = async (code, language, testCases) => {
+    let allPassed = true;
+    const results = [];
+
+    for (const testCase of testCases) {
+        const { input, expectedOutput } = testCase;
+        let result;
+
+        switch (language.toLowerCase()) {
+            case 'javascript':
+                result = executeJavascript(code, input);
+                break;
+            case 'python':
+                result = await executePython(code, input);
+                break;
+            case 'java':
+                result = await executeJava(code, input);
+                break;
+            case 'cpp':
+                result = await executeCpp(code, input);
+                break;
+            default:
+                return { success: false, error: 'Unsupported language' };
+        }
+
+        if (result.success) {
+            const passed = result.result === expectedOutput.toString();
+            allPassed = allPassed && passed;
+            results.push({
+                input,
+                expectedOutput,
+                actualOutput: result.result,
+                passed,
+            });
+        } else {
+            allPassed = false;
+            results.push({
+                input,
+                expectedOutput,
+                actualOutput: result.error,
+                passed: false,
+            });
+        }
     }
+
+    return {
+        success: allPassed,
+        results,
+        summary: {
+            totalTests: testCases.length,
+            passedTests: results.filter(r => r.passed).length,
+            failedTests: results.filter(r => !r.passed).length,
+            score: Math.round((results.filter(r => r.passed).length / testCases.length) * 100),
+        },
+    };
 };
 
 module.exports = { executeCodeInLanguage };

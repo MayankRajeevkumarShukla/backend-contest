@@ -1,23 +1,27 @@
-// src/controllers/contestController.js
 const { executeCodeInLanguage } = require('../services/languageService');
 
-// Example function to handle code execution
 const executeCode = async (req, res) => {
-    const { code, language } = req.body;
+    const { code, language, testCases } = req.body;
     
+    // Input validation
     if (!code || !language) {
-        return res.status(400).json({ success: false, error: 'Code and language are required' });
+        return res.status(400).json({
+            success: false,
+            error: 'Code and language are required'
+        });
     }
 
+    // Ensure testCases is an array, default to empty array if not provided
+    const validatedTestCases = Array.isArray(testCases) ? testCases : [];
+    
     try {
-        const result = await executeCodeInLanguage(code, language);
-        if (result.success) {
-            return res.json({ success: true, result: result.result });
-        } else {
-            return res.status(400).json({ success: false, error: result.error });
-        }
+        const result = await executeCodeInLanguage(code, language, validatedTestCases);
+        return res.json(result);
     } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 };
 
