@@ -1,7 +1,9 @@
-const express = require('express')
-const router = express.json()
-const {executeCode,verifyCode} = require("../controllers/contestController")
+// src/routes/contestRoutes.js
+const express = require('express');
+const router = express.Router();
+const { executeCode } = require('../controllers/contestController');
 
-router.post('/execute',executeCode)
-router.post('/verify',verifyCode)
+// Route for code execution
+router.post('/execute', executeCode);
+
 module.exports = router;
