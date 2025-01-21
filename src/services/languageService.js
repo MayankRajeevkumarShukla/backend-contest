@@ -68,8 +68,67 @@ if __name__ == "__main__":
     }
 };
 
-// Execute Java
 const executeJava = async (code, input) => {
+    const uniqueId = uuidv4();
+    const className = `Solution${uniqueId.replace(/-/g, '')}`;
+    const filename = `${className}.java`;
+    const filepath = path.join(__dirname, '../tmp', filename);
+
+    try {
+        // Wrap the code properly
+        const modifiedCode = `
+public class ${className} {
+${code.replace(/public\s+class\s+\w+\s*{/, '').trim().slice(0, -1)}
+
+    public static void main(String[] args) {
+        int input = Integer.parseInt(args[0]);
+        System.out.println(solution(input));
+    }
+}`;
+        console.log('Generated Java Code:', modifiedCode);
+
+        await fs.outputFile(filepath, modifiedCode);
+
+        const compileCommand = `javac -source 1.8 -target 1.8 "${filepath}"`;
+        console.log('Compile Command:', compileCommand);
+
+        const runCommand = `java -cp "${path.dirname(filepath)}" ${className} ${input}`;
+        console.log('Run Command:', runCommand);
+
+        const result = await new Promise((resolve, reject) => {
+            exec(compileCommand, (compileError, compileStdout, compileStderr) => {
+                if (compileError) {
+                    console.error('Compilation Error:', compileStderr || compileError.message);
+                    reject({ success: false, error: 'Syntax Error' });
+                    return;
+                }
+
+                exec(runCommand, { timeout: TIMEOUT_LIMIT }, (runError, runStdout, runStderr) => {
+                    if (runError) {
+                        const errorType = runError.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Runtime Error';
+                        console.error('Execution Error:', runStderr || runError.message);
+                        reject({ success: false, error: errorType });
+                    } else {
+                        // console.log('Execution Output:', runStdout);
+                        resolve({ success: true, result: runStdout.trim() });
+                    }
+                });
+            });
+        });
+
+        // Clean up the temporary files
+        await fs.remove(filepath);
+        await fs.remove(filepath.replace('.java', '.class'));
+        return result;
+    } catch (error) {
+        console.error('Unexpected Error:', error.message);
+        await fs.remove(filepath);
+        await fs.remove(filepath.replace('.java', '.class'));
+        return { success: false, error: error.message };
+    }
+};
+// without version sepcification use the below code 
+/*const executeJava = async (code, input) => {
     const uniqueId = uuidv4();
     const className = `Solution${uniqueId.replace(/-/g, '')}`;
     const filename = `${className}.java`;
@@ -115,7 +174,8 @@ public class ${className} {
         await fs.remove(filepath.replace('.java', '.class'));
         return { success: false, error: error.message };
     }
-};
+}; */
+
 
 // Execute C++
 const executeCpp = async (code, input) => {
