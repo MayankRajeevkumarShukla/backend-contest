@@ -4,7 +4,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const TIMEOUT_LIMIT = 2000; // Maximum allowed execution time in ms
+const TIMEOUT_LIMIT = 2000; 
 
 // Execute JavaScript
 const executeJavascript = (code, input) => {
