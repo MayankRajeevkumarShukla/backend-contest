@@ -3,7 +3,7 @@ const { exec } = require('child_process');
 const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-
+const { performance } = require('perf_hooks');
 const TIMEOUT_LIMIT = 2000; 
 
 // Execute JavaScript
@@ -20,16 +20,23 @@ const executeJavascript = (code, input) => {
     try {
         const codeWithInput = `
             ${code}
-            console.log(solution(${JSON.stringify(input)}));
+            solution(${JSON.stringify(input)});
         `;
+        const startTime = process.hrtime.bigint();
         const result = vm.run(codeWithInput);
-        return { success: true, result: result !== undefined ? result.toString() : '' };
+        const endTime = process.hrtime.bigint();
+        const executeTime = Number(endTime - startTime) / 1_000_000;
+        return {
+            success: true,
+            executeTime: `${executeTime.toFixed(2)}ms`,
+            result: result !== undefined ? JSON.stringify(result) : '',
+        };
     } catch (error) {
         const errorType = error.message.includes('Script execution timed out')
             ? 'Time Limit Exceeded (TLE)'
-            : 'Syntax Error';
+            : 'Runtime Error';
         console.error(`JavaScript ${errorType}:`, error.message);
-        return { success: false, error: errorType };
+        return { success: false, error: errorType, details: error.message };
     }
 };
 
@@ -37,6 +44,7 @@ const executeJavascript = (code, input) => {
 const executePython = async (code, input) => {
     const filename = `temp-${uuidv4()}.py`;
     const filepath = path.join(__dirname, '../tmp', filename);
+    const startTime = process.hrtime.bigint();
 
     try {
         const codeWithInput = `
@@ -49,12 +57,14 @@ if __name__ == "__main__":
 
         const result = await new Promise((resolve, reject) => {
             exec(`python ${filepath}`, { timeout: TIMEOUT_LIMIT }, (error, stdout, stderr) => {
+                const endTime = process.hrtime.bigint();
+                const executeTime = Number(endTime - startTime) / 1_000_000;
                 if (error) {
                     const errorType = error.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Syntax Error';
                     console.error(`Python ${errorType}:`, stderr || error.message);
                     reject({ success: false, error: errorType });
                 } else {
-                    resolve({ success: true, result: stdout.trim() });
+                    resolve({ success: true, result: stdout.trim(),executeTime: `${executeTime.toFixed(2)}ms` });
                 }
             });
         });
@@ -73,6 +83,7 @@ const executeJava = async (code, input) => {
     const className = `Solution${uniqueId.replace(/-/g, '')}`;
     const filename = `${className}.java`;
     const filepath = path.join(__dirname, '../tmp', filename);
+    const startTime = process.hrtime.bigint();
 
     try {
         // Wrap the code properly
@@ -85,18 +96,20 @@ ${code.replace(/public\s+class\s+\w+\s*{/, '').trim().slice(0, -1)}
         System.out.println(solution(input));
     }
 }`;
-        console.log('Generated Java Code:', modifiedCode);
+        // console.log('Generated Java Code:', modifiedCode);
 
         await fs.outputFile(filepath, modifiedCode);
 
         const compileCommand = `javac -source 1.8 -target 1.8 "${filepath}"`;
-        console.log('Compile Command:', compileCommand);
+        // console.log('Compile Command:', compileCommand);
 
         const runCommand = `java -cp "${path.dirname(filepath)}" ${className} ${input}`;
-        console.log('Run Command:', runCommand);
+        // console.log('Run Command:', runCommand);
 
         const result = await new Promise((resolve, reject) => {
             exec(compileCommand, (compileError, compileStdout, compileStderr) => {
+                const endTime = process.hrtime.bigint();
+                const executeTime = Number(endTime - startTime) / 1_000_000;
                 if (compileError) {
                     console.error('Compilation Error:', compileStderr || compileError.message);
                     reject({ success: false, error: 'Syntax Error' });
@@ -110,7 +123,7 @@ ${code.replace(/public\s+class\s+\w+\s*{/, '').trim().slice(0, -1)}
                         reject({ success: false, error: errorType });
                     } else {
                         // console.log('Execution Output:', runStdout);
-                        resolve({ success: true, result: runStdout.trim() });
+                        resolve({ success: true, result: runStdout.trim(),executeTime: `${executeTime.toFixed(2)}ms` });
                     }
                 });
             });
@@ -184,6 +197,7 @@ const executeCpp = async (code, input) => {
     const executableName = `temp-${uniqueId}${process.platform === 'win32' ? '.exe' : ''}`;
     const filepath = path.join(__dirname, '../tmp', filename);
     const executablePath = path.join(__dirname, '../tmp', executableName);
+    const startTime = process.hrtime.bigint();
 
     try {
         const codeWithInput = `
@@ -199,6 +213,8 @@ int main() {
             const compileCommand = `g++ "${filepath}" -o "${executablePath}"`;
 
             exec(compileCommand, (compileError, compileStdout, compileStderr) => {
+                const endTime = process.hrtime.bigint();
+                const executeTime = Number(endTime - startTime) / 1_000_000;
                 if (compileError) {
                     reject({ success: false, error: 'Syntax Error' });
                     return;
@@ -209,7 +225,7 @@ int main() {
                         const errorType = runError.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Runtime Error';
                         reject({ success: false, error: errorType });
                     } else {
-                        resolve({ success: true, result: runStdout.trim() });
+                        resolve({ success: true, result: runStdout.trim(),executeTime: `${executeTime.toFixed(2)}ms` });
                     }
                 });
             });
@@ -229,6 +245,7 @@ int main() {
 const executeCodeInLanguage = async (code, language, testCases) => {
     let allPassed = true;
     const results = [];
+    const totalStartTime = process.hrtime.bigint();
 
     for (const testCase of testCases) {
         const { input, expectedOutput } = testCase;
@@ -258,6 +275,7 @@ const executeCodeInLanguage = async (code, language, testCases) => {
                 input,
                 expectedOutput,
                 actualOutput: result.result,
+                executeTime: result.executeTime,
                 passed,
             });
         } else {
@@ -271,6 +289,9 @@ const executeCodeInLanguage = async (code, language, testCases) => {
         }
     }
 
+    const totalEndTime = process.hrtime.bigint();
+    const totalExecuteTime = Number(totalEndTime - totalStartTime) / 1_000_000;
+
     return {
         success: allPassed,
         results,
@@ -279,6 +300,7 @@ const executeCodeInLanguage = async (code, language, testCases) => {
             passedTests: results.filter(r => r.passed).length,
             failedTests: results.filter(r => !r.passed).length,
             score: Math.round((results.filter(r => r.passed).length / testCases.length) * 100),
+            totalExecuteTime: `${totalExecuteTime.toFixed(2)}ms`
         },
     };
 };
