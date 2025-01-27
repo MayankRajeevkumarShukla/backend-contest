@@ -188,9 +188,6 @@ public class ${className} {
         return { success: false, error: error.message };
     }
 }; */
-
-
-// Execute C++
 const executeCpp = async (code, input) => {
     const uniqueId = uuidv4();
     const filename = `temp-${uniqueId}.cpp`;
@@ -200,46 +197,55 @@ const executeCpp = async (code, input) => {
     const startTime = process.hrtime.bigint();
 
     try {
-        const codeWithInput = `
-${code}
-
-int main() {
-    cout << solution(${JSON.stringify(input)}) << endl;
-    return 0;
-}`;
-        await fs.outputFile(filepath, codeWithInput);
+        
+        await fs.outputFile(filepath, code);
 
         const result = await new Promise((resolve, reject) => {
+            
             const compileCommand = `g++ "${filepath}" -o "${executablePath}"`;
-
+            
             exec(compileCommand, (compileError, compileStdout, compileStderr) => {
-                const endTime = process.hrtime.bigint();
-                const executeTime = Number(endTime - startTime) / 1_000_000;
                 if (compileError) {
-                    reject({ success: false, error: 'Syntax Error' });
+                    reject({ success: false, error: 'Compilation Error', details: compileStderr });
                     return;
                 }
+                const child = exec(`"${executablePath}"`, { 
+                    timeout: TIMEOUT_LIMIT 
+                }, (runError, runStdout, runStderr) => {
+                    const endTime = process.hrtime.bigint();
+                    const executeTime = Number(endTime - startTime) / 1_000_000;
 
-                exec(`"${executablePath}"`, { timeout: TIMEOUT_LIMIT }, (runError, runStdout, runStderr) => {
                     if (runError) {
                         const errorType = runError.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Runtime Error';
-                        reject({ success: false, error: errorType });
+                        reject({ success: false, error: errorType, details: runStderr });
                     } else {
-                        resolve({ success: true, result: runStdout.trim(),executeTime: `${executeTime.toFixed(2)}ms` });
+                        resolve({ 
+                            success: true, 
+                            result: runStdout.trim(),
+                            executeTime: `${executeTime.toFixed(2)}ms` 
+                        });
                     }
                 });
+                if (input) {
+                    child.stdin.write(input + '\n');
+                    child.stdin.end();
+                }
             });
         });
-
         await fs.remove(filepath);
         await fs.remove(executablePath);
         return result;
     } catch (error) {
-        await fs.remove(filepath);
-        await fs.remove(executablePath);
-        return { success: false, error: error.message };
+        await fs.remove(filepath).catch(() => {});
+        await fs.remove(executablePath).catch(() => {});
+        return { 
+            success: false, 
+            error: error.error || 'Execution Error',
+            details: error.details || error.message 
+        };
     }
 };
+
 
 // Main Execution
 const executeCodeInLanguage = async (code, language, testCases) => {
