@@ -83,7 +83,6 @@ const executeJava = async (code, input) => {
     const className = `Solution${uniqueId.replace(/-/g, '')}`;
     const filename = `${className}.java`;
     const filepath = path.join(__dirname, '../tmp', filename);
-   
 
     try {
         // Wrap the code properly
@@ -96,43 +95,48 @@ ${code.replace(/public\s+class\s+\w+\s*{/, '').trim().slice(0, -1)}
         System.out.println(solution(input));
     }
 }`;
-        // console.log('Generated Java Code:', modifiedCode);
-
+        // Save the Java file
         await fs.outputFile(filepath, modifiedCode);
 
+        // Compile the Java file
         const compileCommand = `javac -source 1.8 -target 1.8 "${filepath}"`;
-        // console.log('Compile Command:', compileCommand);
-
-        const runCommand = `java -cp "${path.dirname(filepath)}" ${className} ${input}`;
-        // console.log('Run Command:', runCommand);
-
-        const result = await new Promise((resolve, reject) => {
-            const startTime = process.hrtime.bigint();
+        await new Promise((resolve, reject) => {
             exec(compileCommand, (compileError, compileStdout, compileStderr) => {
-                const endTime = process.hrtime.bigint();
-                const executeTime = Number(endTime - startTime) / 1_000_000;
                 if (compileError) {
                     console.error('Compilation Error:', compileStderr || compileError.message);
                     reject({ success: false, error: 'Syntax Error' });
                     return;
                 }
+                resolve(); // Continue to execution if compilation is successful
+            });
+        });
 
-                exec(runCommand, { timeout: TIMEOUT_LIMIT }, (runError, runStdout, runStderr) => {
-                    if (runError) {
-                        const errorType = runError.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Runtime Error';
-                        console.error('Execution Error:', runStderr || runError.message);
-                        reject({ success: false, error: errorType });
-                    } else {
-                        // console.log('Execution Output:', runStdout);
-                        resolve({ success: true, result: runStdout.trim(),executeTime: `${executeTime.toFixed(2)}ms` });
-                    }
-                });
+        const runCommand = `java -cp "${path.dirname(filepath)}" ${className} ${input}`;
+
+        const result = await new Promise((resolve, reject) => {
+            const startTime = process.hrtime.bigint(); // Start time right before running the test case
+            exec(runCommand, { timeout: TIMEOUT_LIMIT }, (runError, runStdout, runStderr) => {
+                const endTime = process.hrtime.bigint(); // End time after the test case runs
+                const executeTime = Number(endTime - startTime) / 1_000_000; // Time in milliseconds
+
+                if (runError) {
+                    const errorType = runError.signal === 'SIGTERM' ? 'Time Limit Exceeded (TLE)' : 'Runtime Error';
+                    console.error('Execution Error:', runStderr || runError.message);
+                    reject({ success: false, error: errorType });
+                } else {
+                    resolve({
+                        success: true,
+                        result: runStdout.trim(),
+                        executeTime: `${executeTime.toFixed(2)}ms`
+                    });
+                }
             });
         });
 
         // Clean up the temporary files
         await fs.remove(filepath);
         await fs.remove(filepath.replace('.java', '.class'));
+
         return result;
     } catch (error) {
         console.error('Unexpected Error:', error.message);
@@ -141,6 +145,7 @@ ${code.replace(/public\s+class\s+\w+\s*{/, '').trim().slice(0, -1)}
         return { success: false, error: error.message };
     }
 };
+
 // without version sepcification use the below code 
 /*const executeJava = async (code, input) => {
     const uniqueId = uuidv4();
@@ -254,11 +259,9 @@ const executeCodeInLanguage = async (code, language, testCases) => {
     let allPassed = true;
     const results = [];
     const totalStartTime = process.hrtime.bigint();
-
-    // Track execution times for Java and C++
     let javaExecutionTimes = [];
     let cppExecutionTimes = [];
-    let totalExecutionTime = 0; // To track the total execution time for non-Java and non-C++ languages
+    let totalExecutionTime = 0; 
 
     for (const testCase of testCases) {
         const { input, expectedOutput } = testCase;
@@ -308,21 +311,13 @@ const executeCodeInLanguage = async (code, language, testCases) => {
 
     const totalEndTime = process.hrtime.bigint();
     const totalExecutionTimeMs = Number(totalEndTime - totalStartTime) / 1_000_000;
-
-    // Calculate the average execution time for Java
     const averageJavaTime = javaExecutionTimes.length > 0
         ? javaExecutionTimes.reduce((sum, time) => sum + time, 0) / javaExecutionTimes.length
         : 0;
-
-    // Calculate the average execution time for C++
     const averageCppTime = cppExecutionTimes.length > 0
         ? cppExecutionTimes.reduce((sum, time) => sum + time, 0) / cppExecutionTimes.length
         : 0;
-
-    // Calculate the average execute time for Java and C++ combined
     const averageJavaCppTime = (averageJavaTime + averageCppTime) / 2;
-
-    // Use average execute time for Java and C++ or total execution time for others
     const finalExecuteTime = (language === 'java' || language === 'cpp')
         ? averageJavaCppTime
         : totalExecutionTimeMs;
