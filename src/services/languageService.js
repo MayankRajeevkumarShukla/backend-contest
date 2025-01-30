@@ -255,6 +255,11 @@ const executeCodeInLanguage = async (code, language, testCases) => {
     const results = [];
     const totalStartTime = process.hrtime.bigint();
 
+    // Track execution times for Java and C++
+    let javaExecutionTimes = [];
+    let cppExecutionTimes = [];
+    let totalExecutionTime = 0; // To track the total execution time for non-Java and non-C++ languages
+
     for (const testCase of testCases) {
         const { input, expectedOutput } = testCase;
         let result;
@@ -262,15 +267,19 @@ const executeCodeInLanguage = async (code, language, testCases) => {
         switch (language.toLowerCase()) {
             case 'javascript':
                 result = executeJavascript(code, input);
+                totalExecutionTime += parseFloat(result.executeTime); // Add execution time as a number
                 break;
             case 'python':
                 result = await executePython(code, input);
+                totalExecutionTime += parseFloat(result.executeTime); // Add execution time as a number
                 break;
             case 'java':
                 result = await executeJava(code, input);
+                if (result.executeTime) javaExecutionTimes.push(parseFloat(result.executeTime)); // Convert to number
                 break;
             case 'cpp':
                 result = await executeCpp(code, input);
+                if (result.executeTime) cppExecutionTimes.push(parseFloat(result.executeTime)); // Convert to number
                 break;
             default:
                 return { success: false, error: 'Unsupported language' };
@@ -298,7 +307,25 @@ const executeCodeInLanguage = async (code, language, testCases) => {
     }
 
     const totalEndTime = process.hrtime.bigint();
-    const totalExecuteTime = Number(totalEndTime - totalStartTime) / 1_000_000;
+    const totalExecutionTimeMs = Number(totalEndTime - totalStartTime) / 1_000_000;
+
+    // Calculate the average execution time for Java
+    const averageJavaTime = javaExecutionTimes.length > 0
+        ? javaExecutionTimes.reduce((sum, time) => sum + time, 0) / javaExecutionTimes.length
+        : 0;
+
+    // Calculate the average execution time for C++
+    const averageCppTime = cppExecutionTimes.length > 0
+        ? cppExecutionTimes.reduce((sum, time) => sum + time, 0) / cppExecutionTimes.length
+        : 0;
+
+    // Calculate the average execute time for Java and C++ combined
+    const averageJavaCppTime = (averageJavaTime + averageCppTime) / 2;
+
+    // Use average execute time for Java and C++ or total execution time for others
+    const finalExecuteTime = (language === 'java' || language === 'cpp')
+        ? averageJavaCppTime
+        : totalExecutionTimeMs;
 
     return {
         success: allPassed,
@@ -308,9 +335,12 @@ const executeCodeInLanguage = async (code, language, testCases) => {
             passedTests: results.filter(r => r.passed).length,
             failedTests: results.filter(r => !r.passed).length,
             score: Math.round((results.filter(r => r.passed).length / testCases.length) * 100),
-            totalExecuteTime: `${totalExecuteTime.toFixed(2)}ms`
+            totalExecuteTime: `${finalExecuteTime.toFixed(2)}ms`, // Ensure the value is a number
         },
     };
 };
+
+
+
 
 module.exports = { executeCodeInLanguage };
