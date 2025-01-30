@@ -83,7 +83,7 @@ const executeJava = async (code, input) => {
     const className = `Solution${uniqueId.replace(/-/g, '')}`;
     const filename = `${className}.java`;
     const filepath = path.join(__dirname, '../tmp', filename);
-    const startTime = process.hrtime.bigint();
+   
 
     try {
         // Wrap the code properly
@@ -107,6 +107,7 @@ ${code.replace(/public\s+class\s+\w+\s*{/, '').trim().slice(0, -1)}
         // console.log('Run Command:', runCommand);
 
         const result = await new Promise((resolve, reject) => {
+            const startTime = process.hrtime.bigint();
             exec(compileCommand, (compileError, compileStdout, compileStderr) => {
                 const endTime = process.hrtime.bigint();
                 const executeTime = Number(endTime - startTime) / 1_000_000;
@@ -209,6 +210,7 @@ const executeCpp = async (code, input) => {
                     reject({ success: false, error: 'Compilation Error', details: compileStderr });
                     return;
                 }
+                const startTime = process.hrtime.bigint();
                 const child = exec(`"${executablePath}"`, { 
                     timeout: TIMEOUT_LIMIT 
                 }, (runError, runStdout, runStderr) => {
